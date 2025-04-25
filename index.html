@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drone Racing 3D</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        #game-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ui-overlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            text-shadow: 2px 2px 2px rgba(0,0,0,0.5);
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        #instructions {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            text-shadow: 2px 2px 2px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+    <div id="ui-overlay">
+        <div id="speed">Speed: 0 km/h</div>
+        <div id="timer">Time: 0:00</div>
+        <div id="checkpoints">Gates: 0/3</div>
+    </div>
+    <div id="instructions">
+        WASD: Move | SPACE: Boost | Goal: Fly through all gates!
+    </div>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+        }
+    }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+
+        class Drone {
+            constructor() {
+                // Create drone body
+                const geometry = new THREE.BoxGeometry(1, 0.2, 1);
+                const material = new THREE.MeshPhongMaterial({ 
+                    color: 0x3498db,
+                    specular: 0x555555,
+                    shininess: 30 
+                });
+                this.mesh = new THREE.Mesh(geometry, material);
+                this.mesh.position.y = 2;
+
+                // Add drone arms
+                this.addArms();
+
+                // Drone properties
+                this.speed = 0;
+                this.maxSpeed = 30;
+                this.acceleration = 20;
+                this.deceleration = 10;
+                this.rotationSpeed = 2;
+                
+                // Setup controls
+                this.setupControls();
+            }
+
+            addArms() {
+                const armGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.5);
+                const armMaterial = new THREE.MeshPhongMaterial({ color: 0x2c3e50 });
+
+                // Add four arms
+                const positions = [
+                    { x: 0.45, z: 0.45 },
+                    { x: -0.45, z: 0.45 },
+                    { x: 0.45, z: -0.45 },
+                    { x: -0.45, z: -0.45 }
+                ];
+
+                positions.forEach(pos => {
+                    const arm = new THREE.Mesh(armGeometry, armMaterial);
+                    arm.position.set(pos.x, 0, pos.z);
+                    this.mesh.add(arm);
+                });
+            }
+
+            setupControls() {
+                this.keys = {
+                    forward: false,
+                    backward: false,
+                    left: false,
+                    right: false,
+                    boost: false
+                };
+
+                window.addEventListener('keydown', (e) => this.onKeyDown(e));
+                window.addEventListener('keyup', (e) => this.onKeyUp(e));
+            }
+
+            onKeyDown(event) {
+                switch(event.code) {
+                    case 'KeyW': this.keys.forward = true; break;
+                    case 'KeyS': this.keys.backward = true; break;
+                    case 'KeyA': this.keys.left = true; break;
+                    case 'KeyD': this.keys.right = true; break;
+                    case 'Space': this.keys.boost = true; break;
+                }
+            }
+
+            onKeyUp(event) {
+                switch(event.code) {
+                    case 'KeyW': this.keys.forward = false; break;
+                    case 'KeyS': this.keys.backward = false; break;
+                    case 'KeyA': this.keys.left = false; break;
+                    case 'KeyD': this.keys.right = false; break;
+                    case 'Space': this.keys.boost = false; break;
+                }
+            }
+
+            update(delta) {
+                // Handle rotation
+                if (this.keys.left) this.mesh.rotation.y += this.rotationSpeed * delta;
+                if (this.keys.right) this.mesh.rotation.y -= this.rotationSpeed * delta;
+
+                // Handle movement
+                const targetSpeed = this.keys.forward ? this.maxSpeed : 
+                                  (this.keys.backward ? -this.maxSpeed / 2 : 0);
+                const accelerationRate = this.keys.boost ? this.acceleration * 2 : this.acceleration;
+
+                if (Math.abs(targetSpeed) > Math.abs(this.speed)) {
+                    this.speed += Math.sign(targetSpeed) * accelerationRate * delta;
+                    if (Math.abs(this.speed) > Math.abs(targetSpeed)) this.speed = targetSpeed;
+                } else if (Math.abs(targetSpeed) < Math.abs(this.speed)) {
+                    this.speed -= Math.sign(this.speed) * this.deceleration * delta;
+                    if (Math.abs(this.speed) < 0.1) this.speed = 0;
+                }
+
+                // Move drone
+                const moveDirection = new THREE.Vector3(0, 0, -1);
+                moveDirection.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
+                moveDirection.multiplyScalar(this.speed * delta);
+                this.mesh.position.add(moveDirection);
+
+                // Update UI
+                const speedElement = document.getElementById('speed');
+                if (speedElement) {
+                    speedElement.textContent = `Speed: ${Math.abs(Math.round(this.speed))} km/h`;
+                }
+            }
+        }
+
+        class Game {
+            constructor() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.clock = new THREE.Clock();
+                this.startTime = 0;
+                this.elapsedTime = 0;
+                this.checkpointsPassed = 0;
+                this.totalCheckpoints = 3;
+                this.gameStarted = false;
+            }
+
+            init() {
+                // Setup renderer
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(window.devicePixelRatio);
+                document.getElementById('game-container').appendChild(this.renderer.domElement);
+
+                // Setup camera
+                this.camera.position.set(0, 5, 10);
+                this.camera.lookAt(0, 0, 0);
+
+                // Add lights
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                this.scene.add(ambientLight);
+                
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(10, 20, 10);
+                this.scene.add(directionalLight);
+
+                // Create ground and obstacles
+                this.createGround();
+                this.createObstacles();
+
+                // Initialize drone
+                this.drone = new Drone();
+                this.scene.add(this.drone.mesh);
+
+                // Handle window resize
+                window.addEventListener('resize', () => this.onWindowResize(), false);
+
+                // Start game loop
+                this.animate();
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                const delta = this.clock.getDelta();
+
+                if (this.drone) {
+                    this.drone.update(delta);
+                    this.updateCamera();
+                    this.checkCheckpoints();
+                    this.updateUI();
+                }
+
+                this.renderer.render(this.scene, this.camera);
+            }
+
+            updateCamera() {
+                // Calculate ideal camera position
+                const idealOffset = new THREE.Vector3(0, 3, 7);
+                const idealLookat = new THREE.Vector3(0, 0, -2);
+                
+                // Transform ideal positions to drone's local space
+                const offset = idealOffset.clone();
+                offset.applyQuaternion(this.drone.mesh.quaternion);
+                offset.add(this.drone.mesh.position);
+                
+                const lookat = idealLookat.clone();
+                lookat.applyQuaternion(this.drone.mesh.quaternion);
+                lookat.add(this.drone.mesh.position);
+                
+                // Smoothly move camera
+                this.camera.position.lerp(offset, 0.1);
+                this.camera.lookAt(lookat);
+            }
+
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+
+            createGround() {
+                // Create main ground plane
+                const groundGeometry = new THREE.PlaneGeometry(200, 200);
+                const groundMaterial = new THREE.MeshPhongMaterial({ 
+                    color: 0x1a472a,
+                    shininess: 10 
+                });
+                const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+                ground.rotation.x = -Math.PI / 2;
+                ground.receiveShadow = true;
+                this.scene.add(ground);
+
+                // Add grid helper
+                const gridHelper = new THREE.GridHelper(200, 200, 0x000000, 0x222222);
+                gridHelper.position.y = 0.01;
+                this.scene.add(gridHelper);
+            }
+
+            createObstacles() {
+                this.obstacles = new THREE.Group();
+                
+                // Create gates (rings to fly through)
+                const gateGeometry = new THREE.TorusGeometry(3, 0.2, 16, 32);
+                const gateMaterial = new THREE.MeshPhongMaterial({ 
+                    color: 0xffd700,
+                    shininess: 30
+                });
+
+                // Gate positions
+                const gatePositions = [
+                    { x: 0, y: 3, z: -15, rotation: 0 },
+                    { x: 8, y: 6, z: -35, rotation: -0.5 },
+                    { x: -12, y: 5, z: -60, rotation: 0.7 }
+                ];
+
+                gatePositions.forEach((pos) => {
+                    const gate = new THREE.Mesh(gateGeometry, gateMaterial);
+                    gate.position.set(pos.x, pos.y, pos.z);
+                    gate.rotation.y = pos.rotation;
+                    this.obstacles.add(gate);
+                });
+
+                this.scene.add(this.obstacles);
+            }
+
+            checkCheckpoints() {
+                if (!this.gameStarted && this.drone.speed !== 0) {
+                    this.gameStarted = true;
+                    this.startTime = Date.now();
+                }
+
+                if (this.obstacles) {
+                    for (let i = 0; i < 3; i++) {
+                        const gate = this.obstacles.children[i];
+                        if (gate.userData.passed) continue;
+
+                        const dronePos = this.drone.mesh.position;
+                        const gatePos = gate.position;
+                        
+                        const distance = dronePos.distanceTo(gatePos);
+                        if (distance < 2) {
+                            gate.userData.passed = true;
+                            this.checkpointsPassed++;
+                            gate.material.color.setHex(0x00ff00);
+                            
+                            if (this.checkpointsPassed === this.totalCheckpoints) {
+                                alert(`Course Complete! Time: ${Math.floor(this.elapsedTime)} seconds`);
+                                this.resetGame();
+                            }
+                        }
+                    }
+                }
+            }
+
+            resetGame() {
+                this.checkpointsPassed = 0;
+                this.gameStarted = false;
+                this.elapsedTime = 0;
+                
+                this.obstacles.children.forEach(gate => {
+                    gate.material.color.setHex(0xffd700);
+                    gate.userData.passed = false;
+                });
+                
+                this.drone.mesh.position.set(0, 2, 0);
+                this.drone.mesh.rotation.set(0, 0, 0);
+                this.drone.speed = 0;
+            }
+            
+            updateUI() {
+                if (this.gameStarted) {
+                    this.elapsedTime = (Date.now() - this.startTime) / 1000;
+                    const minutes = Math.floor(this.elapsedTime / 60);
+                    const seconds = Math.floor(this.elapsedTime % 60);
+                    document.getElementById('timer').textContent = 
+                        `Time: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+                }
+
+                document.getElementById('checkpoints').textContent = 
+                    `Gates: ${this.checkpointsPassed}/${this.totalCheckpoints}`;
+            }
+        }
+
+        // Start the game
+        const game = new Game();
+        game.init();
+    </script>
+</body>
+</html>
