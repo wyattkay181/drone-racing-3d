@@ -216,6 +216,7 @@
                 // Create ground and obstacles
                 this.createGround();
                 this.createObstacles();
+                this.createDynamicObstacles();
 
                 // Initialize drone
                 this.drone = new Drone();
@@ -239,6 +240,7 @@
                     this.updateUI();
                 }
 
+                this.updateDynamicObstacles(delta);
                 this.renderer.render(this.scene, this.camera);
             }
 
@@ -367,6 +369,52 @@
 
                 document.getElementById('checkpoints').textContent = 
                     `Gates: ${this.checkpointsPassed}/${this.totalCheckpoints}`;
+            }
+
+            createDynamicObstacles() {
+                this.dynamicObstacles = new THREE.Group();
+                
+                // Create moving barriers
+                const createMovingBarrier = (x, z, height, moveRange) => {
+                    const barrier = new THREE.Mesh(
+                        new THREE.BoxGeometry(2, height, 2),
+                        new THREE.MeshPhongMaterial({ color: 0xff6666 })
+                    );
+                    barrier.position.set(x, height/2, z);
+                    barrier.userData.startY = height/2;
+                    barrier.userData.moveRange = moveRange;
+                    barrier.userData.moveSpeed = 2;
+                    barrier.userData.time = Math.random() * Math.PI * 2; // Random start phase
+                    return barrier;
+                };
+
+                // Add several moving barriers
+                const movingBarriers = [
+                    createMovingBarrier(4, -30, 8, 4),   // Moves up/down by 4 units
+                    createMovingBarrier(-4, -40, 6, 3),   // Moves up/down by 3 units
+                    createMovingBarrier(0, -50, 10, 5)    // Moves up/down by 5 units
+                ];
+
+                movingBarriers.forEach(barrier => {
+                    this.dynamicObstacles.add(barrier);
+                });
+
+                this.scene.add(this.dynamicObstacles);
+            }
+
+            updateDynamicObstacles(delta) {
+                if (!this.dynamicObstacles) return;
+
+                this.dynamicObstacles.children.forEach(obstacle => {
+                    if (obstacle.userData.moveRange) {
+                        // Moving barrier
+                        obstacle.userData.time += delta;
+                        const newY = obstacle.userData.startY + 
+                            Math.sin(obstacle.userData.time * obstacle.userData.moveSpeed) * 
+                            obstacle.userData.moveRange;
+                        obstacle.position.y = newY;
+                    }
+                });
             }
         }
 
